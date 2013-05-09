@@ -1,7 +1,9 @@
-require 'benchmark'
-require 'yaml'
-require 'capistrano/recipes/deploy/scm'
-require 'capistrano/recipes/deploy/strategy'
+require "benchmark"
+require "set"
+require "shellwords"
+require "yaml"
+require "capistrano/recipes/deploy/scm"
+require "capistrano/recipes/deploy/strategy"
 
 def _cset(name, *args, &block)
   unless exists?(name)
@@ -22,11 +24,14 @@ _cset(:repository)  { abort "Please specify the repository that houses your appl
 # are not sufficient.
 # =========================================================================
 
-_cset :scm, :subversion
+_cset(:scm) { scm_default }
 _cset :deploy_via, :checkout
 
 _cset(:deploy_to) { "/u/apps/#{application}" }
 _cset(:revision)  { source.head }
+
+_cset :rails_env, "production"
+_cset :rake, "rake"
 
 # =========================================================================
 # These variables should NOT be changed unless you are very confident in
@@ -44,7 +49,7 @@ _cset(:release_name)      { set :deploy_timestamped, true; Time.now.utc.strftime
 
 _cset :version_dir,       "releases"
 _cset :shared_dir,        "shared"
-_cset :shared_children,   %w(system log pids)
+_cset :shared_children,   %w(public/system log tmp/pids)
 _cset :current_dir,       "current"
 
 _cset(:releases_path)     { File.join(deploy_to, version_dir) }
@@ -52,13 +57,13 @@ _cset(:shared_path)       { File.join(deploy_to, shared_dir) }
 _cset(:current_path)      { File.join(deploy_to, current_dir) }
 _cset(:release_path)      { File.join(releases_path, release_name) }
 
-_cset(:releases)          { capture("ls -x #{releases_path}", :except => { :no_release => true }).split.sort }
-_cset(:current_release)   { File.join(releases_path, releases.last) }
+_cset(:releases)          { capture("#{try_sudo} ls -x #{releases_path}", :except => { :no_release => true }).split.sort }
+_cset(:current_release)   { releases.length > 0 ? File.join(releases_path, releases.last) : nil }
 _cset(:previous_release)  { releases.length > 1 ? File.join(releases_path, releases[-2]) : nil }
 
-_cset(:current_revision)  { capture("cat #{current_path}/REVISION",     :except => { :no_release => true }).chomp }
-_cset(:latest_revision)   { capture("cat #{current_release}/REVISION",  :except => { :no_release => true }).chomp }
-_cset(:previous_revision) { capture("cat #{previous_release}/REVISION", :except => { :no_release => true }).chomp if previous_release }
+_cset(:current_revision)  { capture("#{try_sudo} cat #{current_path}/REVISION",     :except => { :no_release => true }).chomp }
+_cset(:latest_revision)   { capture("#{try_sudo} cat #{current_release}/REVISION",  :except => { :no_release => true }).chomp }
+_cset(:previous_revision) { capture("#{try_sudo} cat #{previous_release}/REVISION", :except => { :no_release => true }).chomp if previous_release }
 
 _cset(:run_method)        { fetch(:use_sudo, true) ? :sudo : :run }
 
@@ -69,9 +74,38 @@ _cset(:run_method)        { fetch(:use_sudo, true) ? :sudo : :run }
 # standalone case, or during deployment.
 _cset(:latest_release) { exists?(:deploy_timestamped) ? release_path : current_release }
 
+_cset :maintenance_basename, "maintenance"
+_cset(:maintenance_template_path) { File.join(File.dirname(__FILE__), "templates", "maintenance.rhtml") }
 # =========================================================================
 # These are helper methods that will be available to your recipes.
 # =========================================================================
+
+# Checks known version control directories to intelligently set the version
+# control in-use. For example, if a .svn directory exists in the project,
+# it will set the :scm variable to :subversion, if a .git directory exists
+# in the project, it will set the :scm variable to :git and so on. If no
+# directory is found, it will default to :git.
+def scm_default
+  if File.exist? '.git'
+    :git
+  elsif File.exist? '.accurev'
+    :accurev
+  elsif File.exist? '.bzr'
+    :bzr
+  elsif File.exist? '.cvs'
+    :cvs
+  elsif File.exist? '_darcs'
+    :darcs
+  elsif File.exist? '.hg'
+    :mercurial
+  elsif File.exist? '.perforce'
+    :perforce
+  elsif File.exist? '.svn'
+    :subversion
+  else
+    :none
+  end
+end
 
 # Auxiliary helper method for the `deploy:check' task. Lets you set up your
 # own dependencies.
@@ -95,7 +129,11 @@ end
 # logs the command then executes it locally.
 # returns the command output as a string
 def run_locally(cmd)
+  if dry_run
+    return logger.debug "executing locally: #{cmd.inspect}"
+  end
   logger.trace "executing locally: #{cmd.inspect}" if logger
+  output_on_stdout = nil
   elapsed = Benchmark.realtime do
     output_on_stdout = `#{cmd}`
   end
@@ -120,7 +158,7 @@ end
 # THUS, if you want to try to run something via sudo, and what to use the
 # root user, you'd just to try_sudo('something'). If you wanted to try_sudo as
 # someone else, you'd just do try_sudo('something', :as => "bob"). If you
-# always wanted sudo to run as a particular user, you could do 
+# always wanted sudo to run as a particular user, you could do
 # set(:admin_runner, "bob").
 def try_sudo(*args)
   options = args.last.is_a?(Hash) ? args.pop : {}
@@ -178,8 +216,9 @@ namespace :deploy do
   DESC
   task :setup, :except => { :no_release => true } do
     dirs = [deploy_to, releases_path, shared_path]
-    dirs += shared_children.map { |d| File.join(shared_path, d) }
-    run "#{try_sudo} mkdir -p #{dirs.join(' ')} && #{try_sudo} chmod g+w #{dirs.join(' ')}"
+    dirs += shared_children.map { |d| File.join(shared_path, d.split('/').last) }
+    run "#{try_sudo} mkdir -p #{dirs.join(' ')}"
+    run "#{try_sudo} chmod g+w #{dirs.join(' ')}" if fetch(:group_writable, true)
   end
 
   desc <<-DESC
@@ -193,7 +232,7 @@ namespace :deploy do
   task :update do
     transaction do
       update_code
-      symlink
+      create_symlink
     end
   end
 
@@ -261,27 +300,45 @@ namespace :deploy do
     public/stylesheets, and public/javascripts so that the times are \
     consistent (so that asset timestamping works).  This touch process \
     is only carried out if the :normalize_asset_timestamps variable is \
-    set to true, which is the default.
+    set to true, which is the default. The asset directories can be overridden \
+    using the :public_children variable.
   DESC
   task :finalize_update, :except => { :no_release => true } do
-    run "chmod -R g+w #{latest_release}" if fetch(:group_writable, true)
+    escaped_release = latest_release.to_s.shellescape
+    commands = []
+    commands << "chmod -R -- g+w #{escaped_release}" if fetch(:group_writable, true)
 
     # mkdir -p is making sure that the directories are there for some SCM's that don't
     # save empty folders
-    run <<-CMD
-      rm -rf #{latest_release}/log #{latest_release}/public/system #{latest_release}/tmp/pids &&
-      mkdir -p #{latest_release}/public &&
-      mkdir -p #{latest_release}/tmp &&
-      ln -s #{shared_path}/log #{latest_release}/log &&
-      ln -s #{shared_path}/system #{latest_release}/public/system &&
-      ln -s #{shared_path}/pids #{latest_release}/tmp/pids
-    CMD
+    shared_children.map do |dir|
+      d = dir.shellescape
+      if (dir.rindex('/')) then
+        commands += ["rm -rf -- #{escaped_release}/#{d}",
+                     "mkdir -p -- #{escaped_release}/#{dir.slice(0..(dir.rindex('/'))).shellescape}"]
+      else
+        commands << "rm -rf -- #{escaped_release}/#{d}"
+      end
+      commands << "ln -s -- #{shared_path}/#{dir.split('/').last.shellescape} #{escaped_release}/#{d}"
+    end
+
+    run commands.join(' && ') if commands.any?
 
     if fetch(:normalize_asset_timestamps, true)
       stamp = Time.now.utc.strftime("%Y%m%d%H%M.%S")
-      asset_paths = %w(images stylesheets javascripts).map { |p| "#{latest_release}/public/#{p}" }.join(" ")
-      run "find #{asset_paths} -exec touch -t #{stamp} {} ';'; true", :env => { "TZ" => "UTC" }
+      asset_paths = fetch(:public_children, %w(images stylesheets javascripts)).
+        map { |p| "#{latest_release}/public/#{p}" }.
+        map { |p| p.shellescape }
+      run("find #{asset_paths.join(" ")} -exec touch -t #{stamp} -- {} ';'; true",
+          :env => { "TZ" => "UTC" }) if asset_paths.any?
     end
+  end
+
+  desc <<-DESC
+    Deprecated API. This has become deploy:create_symlink, please update your recipes
+  DESC
+  task :symlink, :except => { :no_release => true } do
+    Kernel.warn "[Deprecation Warning] This API has changed, please hook `deploy:create_symlink` instead of `deploy:symlink`."
+    create_symlink
   end
 
   desc <<-DESC
@@ -293,16 +350,16 @@ namespace :deploy do
     deploy, including `restart') or the 'update' task (which does everything \
     except `restart').
   DESC
-  task :symlink, :except => { :no_release => true } do
+  task :create_symlink, :except => { :no_release => true } do
     on_rollback do
       if previous_release
-        run "rm -f #{current_path}; ln -s #{previous_release} #{current_path}; true"
+        run "#{try_sudo} rm -f #{current_path}; #{try_sudo} ln -s #{previous_release} #{current_path}; true"
       else
         logger.important "no previous release to rollback to, rollback of symlink skipped"
       end
     end
 
-    run "rm -f #{current_path} && ln -s #{latest_release} #{current_path}"
+    run "#{try_sudo} rm -f #{current_path} && #{try_sudo} ln -s #{latest_release} #{current_path}"
   end
 
   desc <<-DESC
@@ -331,23 +388,11 @@ namespace :deploy do
   end
 
   desc <<-DESC
-    Restarts your application. This works by calling the script/process/reaper \
-    script under the current path.
-    
-    If you are deploying a Rails 2.3.x application, you will need to install 
-    these http://github.com/rails/irs_process_scripts (more info about why
-    on that page.)
-    
-    By default, this will be invoked via sudo as the `app' user. If \
-    you wish to run it as a different user, set the :runner variable to \
-    that user. If you are in an environment where you can't use sudo, set \
-    the :use_sudo variable to false:
-    
-      set :use_sudo, false
+    Blank task exists as a hook into which to install your own environment \
+    specific behaviour.
   DESC
   task :restart, :roles => :app, :except => { :no_release => true } do
-    warn "[DEPRECATED] `deploy:restart` is going to be changed to Passenger mod_rails' method after 2.5.9 - see http://is.gd/2BPeA"
-    try_runner "#{current_path}/script/process/reaper"
+    # Empty Task to overload with your platform specifics
   end
 
   namespace :rollback do
@@ -358,7 +403,7 @@ namespace :deploy do
     DESC
     task :revision, :except => { :no_release => true } do
       if previous_release
-        run "rm #{current_path}; ln -s #{previous_release} #{current_path}"
+        run "#{try_sudo} rm #{current_path}; #{try_sudo} ln -s #{previous_release} #{current_path}"
       else
         abort "could not rollback the code because there is no prior release"
       end
@@ -370,7 +415,7 @@ namespace :deploy do
       (if ever) need to be called directly.
     DESC
     task :cleanup, :except => { :no_release => true } do
-      run "if [ `readlink #{current_path}` != #{current_release} ]; then rm -rf #{current_release}; fi"
+      run "if [ `readlink #{current_path}` != #{current_release} ]; then #{try_sudo} rm -rf #{current_release}; fi"
     end
 
     desc <<-DESC
@@ -419,12 +464,11 @@ namespace :deploy do
 
     directory = case migrate_target.to_sym
       when :current then current_path
-      when :latest  then current_release
+      when :latest  then latest_release
       else raise ArgumentError, "unknown migration target #{migrate_target.inspect}"
       end
 
-    puts "#{migrate_target} => #{directory}"
-    run "cd #{directory}; #{rake} RAILS_ENV=#{rails_env} #{migrate_env} db:migrate"
+    run "cd #{directory} && #{rake} RAILS_ENV=#{rails_env} #{migrate_env} db:migrate"
   end
 
   desc <<-DESC
@@ -438,7 +482,7 @@ namespace :deploy do
     set :migrate_target, :latest
     update_code
     migrate
-    symlink
+    create_symlink
     restart
   end
 
@@ -451,16 +495,7 @@ namespace :deploy do
   DESC
   task :cleanup, :except => { :no_release => true } do
     count = fetch(:keep_releases, 5).to_i
-    if count >= releases.length
-      logger.important "no old releases to clean up"
-    else
-      logger.info "keeping #{count} of #{releases.length} deployed releases"
-
-      directories = (releases - releases.last(count)).map { |release|
-        File.join(releases_path, release) }.join(" ")
-
-      try_sudo "rm -rf #{directories}"
-    end
+    try_sudo "ls -1dt #{releases_path}/* | tail -n +#{count + 1} | #{try_sudo} xargs rm -rf"
   end
 
   desc <<-DESC
@@ -516,37 +551,19 @@ namespace :deploy do
   end
 
   desc <<-DESC
-    Start the application servers. This will attempt to invoke a script \
-    in your application called `script/spin', which must know how to start \
-    your application listeners. For Rails applications, you might just have \
-    that script invoke `script/process/spawner' with the appropriate \
-    arguments.
-
-    By default, the script will be executed via sudo as the `app' user. If \
-    you wish to run it as a different user, set the :runner variable to \
-    that user. If you are in an environment where you can't use sudo, set \
-    the :use_sudo variable to false.
+    Blank task exists as a hook into which to install your own environment \
+    specific behaviour.
   DESC
   task :start, :roles => :app do
-    warn "[DEPRECATED] `deploy:start` is going to be removed after 2.5.9 - see http://is.gd/2BPeA"
-    run "cd #{current_path} && #{try_runner} nohup script/spin"
+    # Empty Task to overload with your platform specifics
   end
 
   desc <<-DESC
-    Stop the application servers. This will call script/process/reaper for \
-    both the spawner process, and all of the application processes it has \
-    spawned. As such, it is fairly Rails specific and may need to be \
-    overridden for other systems.
-
-    By default, the script will be executed via sudo as the `app' user. If \
-    you wish to run it as a different user, set the :runner variable to \
-    that user. If you are in an environment where you can't use sudo, set \
-    the :use_sudo variable to false.
+    Blank task exists as a hook into which to install your own environment \
+    specific behaviour.
   DESC
   task :stop, :roles => :app do
-    warn "[DEPRECATED] `deploy:start` is going to be removed after 2.5.9 - see http://is.gd/2BPeA"
-    run "if [ -f #{current_path}/tmp/pids/dispatch.spawner.pid ]; then #{try_runner} #{current_path}/script/process/reaper -a kill -r dispatch.spawner.pid; fi"
-    try_runner "#{current_path}/script/process/reaper -a kill"
+    # Empty Task to overload with your platform specifics
   end
 
   namespace :pending do
@@ -573,7 +590,7 @@ namespace :deploy do
   namespace :web do
     desc <<-DESC
       Present a maintenance page to visitors. Disables your application's web \
-      interface by writing a "maintenance.html" file to each web server. The \
+      interface by writing a "#{maintenance_basename}.html" file to each web server. The \
       servers must be configured to detect the presence of this file, and if \
       it is present, always display it instead of performing the request.
 
@@ -585,42 +602,57 @@ namespace :deploy do
               REASON="hardware upgrade" \\
               UNTIL="12pm Central Time"
 
+      You can use a different template for the maintenance page by setting the \
+      :maintenance_template_path variable in your deploy.rb file. The template file \
+      should either be a plaintext or an erb file.
+
       Further customization will require that you write your own task.
     DESC
     task :disable, :roles => :web, :except => { :no_release => true } do
       require 'erb'
-      on_rollback { run "rm #{shared_path}/system/maintenance.html" }
+      on_rollback { run "rm -f #{shared_path}/system/#{maintenance_basename}.html" }
 
       warn <<-EOHTACCESS
-      
-        # Please add something like this to your site's htaccess to redirect users to the maintenance page.
+
+        # Please add something like this to your site's Apache htaccess to redirect users to the maintenance page.
         # More Info: http://www.shiftcommathree.com/articles/make-your-rails-maintenance-page-respond-with-a-503
-        
-        ErrorDocument 503 /system/maintenance.html
+
+        ErrorDocument 503 /system/#{maintenance_basename}.html
         RewriteEngine On
         RewriteCond %{REQUEST_URI} !\.(css|gif|jpg|png)$
-        RewriteCond %{DOCUMENT_ROOT}/system/maintenance.html -f
-        RewriteCond %{SCRIPT_FILENAME} !maintenance.html
+        RewriteCond %{DOCUMENT_ROOT}/system/#{maintenance_basename}.html -f
+        RewriteCond %{SCRIPT_FILENAME} !#{maintenance_basename}.html
         RewriteRule ^.*$  -  [redirect=503,last]
+
+        # Or if you are using Nginx add this to your server config:
+
+        if (-f $document_root/system/maintenance.html) {
+          return 503;
+        }
+        error_page 503 @maintenance;
+        location @maintenance {
+          rewrite  ^(.*)$  /system/maintenance.html break;
+          break;
+        }
       EOHTACCESS
 
       reason = ENV['REASON']
       deadline = ENV['UNTIL']
 
-      template = File.read(File.join(File.dirname(__FILE__), "templates", "maintenance.rhtml"))
+      template = File.read(maintenance_template_path)
       result = ERB.new(template).result(binding)
 
-      put result, "#{shared_path}/system/maintenance.html", :mode => 0644
+      put result, "#{shared_path}/system/#{maintenance_basename}.html", :mode => 0644
     end
 
     desc <<-DESC
       Makes the application web-accessible again. Removes the \
-      "maintenance.html" page generated by deploy:web:disable, which (if your \
+      "#{maintenance_basename}.html" page generated by deploy:web:disable, which (if your \
       web servers are configured correctly) will make your application \
       web-accessible again.
     DESC
     task :enable, :roles => :web, :except => { :no_release => true } do
-      run "rm #{shared_path}/system/maintenance.html"
+      run "rm -f #{shared_path}/system/#{maintenance_basename}.html"
     end
   end
 end

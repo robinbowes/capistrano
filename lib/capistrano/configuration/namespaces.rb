@@ -97,12 +97,17 @@ module Capistrano
           raise ArgumentError, "defining a task named `#{name}' would shadow an existing #{thing} with that name"
         end
 
-        tasks[name] = TaskDefinition.new(name, self, {:desc => next_description(:reset)}.merge(options), &block)
 
-        if !task_already_defined
-          metaclass = class << self; self; end
-          metaclass.send(:define_method, name) { execute_task(tasks[name]) }
-        end
+        task = TaskDefinition.new(name, self, {:desc => next_description(:reset)}.merge(options), &block)
+
+        define_task(task)
+      end
+
+      def define_task(task)
+        tasks[task.name] = task
+
+        metaclass = class << self; self; end
+        metaclass.send(:define_method, task.name) { execute_task(tasks[task.name]) }
       end
 
       # Find the task with the given name, where name is the fully-qualified
@@ -151,7 +156,7 @@ module Capistrano
         return nil if parent.nil?
         return tasks[DEFAULT_TASK]
       end
-  
+
       # Returns the tasks in this namespace as an array of TaskDefinition
       # objects. If a non-false parameter is given, all tasks in all
       # namespaces under this namespace will be returned as well.
@@ -189,9 +194,30 @@ module Capistrano
             end
           end
 
+          include Capistrano::Configuration::AliasTask
           include Capistrano::Configuration::Namespaces
           undef :desc, :next_description
         end
+    end
+  end
+end
+
+module Kernel
+  class << self
+    alias_method :method_added_without_capistrano, :method_added
+
+    # Detect method additions to Kernel and remove them in the Namespace class
+    def method_added(name)
+      result = method_added_without_capistrano(name)
+      return result if self != Kernel
+
+      namespace = Capistrano::Configuration::Namespaces::Namespace
+
+      if namespace.method_defined?(name) && namespace.instance_method(name).owner == Kernel
+        namespace.send :undef_method, name
+      end
+
+      result
     end
   end
 end

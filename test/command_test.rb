@@ -154,6 +154,16 @@ class CommandTest < Test::Unit::TestCase
     assert_equal 5, channel[:status]
   end
 
+  def test_on_request_should_log_exit_signal_if_logger_present
+    data = mock(:read_string => "TERM")
+    logger = stub_everything
+
+    session = setup_for_extracting_channel_action([:on_request, "exit-signal"], data)
+    logger.expects(:important).with("command received signal TERM", server("capistrano"))
+
+    Capistrano::Command.new("puppet", [session], :logger => logger)
+  end
+
   def test_on_close_should_set_channel_closed
     channel = nil
     session = setup_for_extracting_channel_action(:on_close) { |ch| channel = ch }
@@ -205,6 +215,7 @@ class CommandTest < Test::Unit::TestCase
     new_channel = Proc.new do |times|
       ch = mock("channel")
       returns = [false] * (times-1)
+      ch.stubs(:to_ary)
       ch.stubs(:[]).with(:closed).returns(*(returns + [true]))
       ch.expects(:[]).with(:status).returns(0)
       ch
@@ -214,7 +225,9 @@ class CommandTest < Test::Unit::TestCase
                 mock_session(new_channel[10]),
                 mock_session(new_channel[7])]
     cmd = Capistrano::Command.new("ls", sessions)
-    assert_nothing_raised { cmd.process! }
+    assert_nothing_raised do
+      cmd.process!
+    end
   end
 
   def test_process_should_instantiate_command_and_process!
@@ -223,11 +236,25 @@ class CommandTest < Test::Unit::TestCase
     Capistrano::Command.process("ls -l", %w(a b c), :foo => "bar")
   end
 
-  def test_process_with_host_placeholder_should_substitute_placeholder_with_each_host
+  def test_process_with_host_placeholder_should_substitute_host_placeholder_with_each_host
     session = setup_for_extracting_channel_action do |ch|
       ch.expects(:exec).with(%(sh -c 'echo capistrano'))
     end
     Capistrano::Command.new("echo $CAPISTRANO:HOST$", [session])
+  end
+
+  class MockConfig
+    include Capistrano::Configuration::Roles
+  end
+
+  def test_hostroles_substitution
+    @config = MockConfig.new
+    @config.server "capistrano", :db, :worker
+    server = @config.roles[:db].servers.first
+    channel = {:server => server, :host => 'capistrano'}
+    tree = Capistrano::Command::Tree.new(@config) { |t| t.else("echo $CAPISTRANO:HOSTROLES$") }
+    result = Capistrano::Command.new(tree, []).send(:replace_placeholders, "echo $CAPISTRANO:HOSTROLES$", channel)
+    assert result == "echo db,worker" || result == "echo worker,db"
   end
 
   def test_process_with_unknown_placeholder_should_not_replace_placeholder
@@ -237,14 +264,23 @@ class CommandTest < Test::Unit::TestCase
     Capistrano::Command.new("echo $CAPISTRANO:OTHER$", [session])
   end
 
+  def test_input_stream_closed_when_eof_option_is_true
+    channel = nil
+    session = setup_for_extracting_channel_action { |ch| channel = ch }
+    channel.expects(:eof!)
+    Capistrano::Command.new("cat", [session], :data => "here we go", :eof => true)
+    assert_equal({ :data => 'here we go', :eof => true }, channel[:options])
+  end
+
   private
 
     def mock_session(channel=nil)
-      stub('session', :open_channel => channel,
-        :preprocess => true,
-        :postprocess => true,
-        :listeners => {},
-        :xserver => server("capistrano"))
+      stub('session',
+           :open_channel => channel,
+           :preprocess   => true,
+           :postprocess  => true,
+           :listeners    => {},
+           :xserver      => server("capistrano"))
     end
 
     class MockChannel < Hash

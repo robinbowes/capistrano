@@ -19,17 +19,12 @@ module Capistrano
       end
 
       def invoke_task_directly_with_callbacks(task) #:nodoc:
-        before = find_hook(task, :before)
-        execute_task(before) if before
 
         trigger :before, task
 
         result = invoke_task_directly_without_callbacks(task)
 
         trigger :after, task
-
-        after = find_hook(task, :after)
-        execute_task(after) if after
 
         return result
       end
@@ -95,7 +90,7 @@ module Capistrano
       # Usage:
       #
       #  on :before, "some:hook", "another:hook", :only => "deploy:update"
-      #  on :after, "some:hook", :except => "deploy:symlink"
+      #  on :after, "some:hook", :except => "deploy:create_symlink"
       #  on :before, "global:hook"
       #  on :after, :only => :deploy do
       #    puts "after deploy here"
@@ -111,10 +106,28 @@ module Capistrano
         elsif block
           callbacks[event] << ProcCallback.new(block, options)
         else
-          args.each do |name|
-            callbacks[event] << TaskCallback.new(self, name, options)
-          end
+          args = filter_deprecated_tasks(args)
+          options[:only] = filter_deprecated_tasks(options[:only])
+          options[:except] = filter_deprecated_tasks(options[:except])
+
+          callbacks[event].concat(args.map { |name| TaskCallback.new(self, name, options) })
         end
+      end
+
+      # Filters the given task name or names and attempts to replace deprecated tasks with their equivalents.
+      def filter_deprecated_tasks(names)
+        deprecation_msg = "[Deprecation Warning] This API has changed, please hook `deploy:create_symlink` instead of" \
+          " `deploy:symlink`."
+
+        if names == "deploy:symlink"
+          warn deprecation_msg
+          names = "deploy:create_symlink"
+        elsif names.is_a?(Array) && names.include?("deploy:symlink")
+          warn deprecation_msg
+          names = names.map { |name| name == "deploy:symlink" ? "deploy:create_symlink" : name }
+        end
+
+        names
       end
 
       # Trigger the named event for the named task. All associated callbacks
@@ -128,20 +141,6 @@ module Capistrano
           pending.each { |callback| callback.call }
         end
       end
-
-      private
-
-        # Looks for before_foo or after_foo tasks. This method of extending tasks
-        # is now discouraged (though not formally deprecated). You should use the
-        # before and after methods to declare hooks for such callbacks.
-        def find_hook(task, hook)
-          if task == task.namespace.default_task
-            result = task.namespace.search_task("#{hook}_#{task.namespace.name}")
-            return result if result
-          end
-
-          task.namespace.search_task("#{hook}_#{task.name}")
-        end
 
     end
   end

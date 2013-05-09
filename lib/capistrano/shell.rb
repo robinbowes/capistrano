@@ -64,6 +64,9 @@ INTRO
           return false
         when /^set -(\w)\s*(\S+)/
           set_option($1, $2)
+        when /^set :(.*)\s+(.*)/
+          configuration.set($1.to_sym, $2)
+          puts "updated :#{$1} to #{$2}"
         when /^(?:(with|on)\s*(\S+))?\s*(\S.*)?/i
           process_command($1, $2, $3)
         else
@@ -171,7 +174,7 @@ HELP
 
       # Execute a command on the given list of servers.
       def exec_command(command, servers)
-        command = command.gsub(/\bsudo\b/, "sudo -p '#{configuration.sudo_prompt}'")
+        command = command.gsub(/^(\s*)sudo\b|([|;&])\s*sudo\b/, "\\0 -p '#{configuration.sudo_prompt}'")
         processor = configuration.sudo_behavior_callback(Configuration.default_io_proc)
         sessions = servers.map { |server| configuration.sessions[server] }
         options = configuration.add_default_command_options({})
@@ -199,11 +202,13 @@ HELP
       # thread and generally gets things ready for the REPL.
       def setup
         configuration.logger.level = Capistrano::Logger::INFO
+        wait_for = 0.1
 
         @mutex = Mutex.new
         @bgthread = Thread.new do
           loop do
-            @mutex.synchronize { process_iteration(0.1) }
+            ret = @mutex.synchronize { process_iteration(wait_for) }
+            sleep wait_for if !ret
           end
         end
       end
@@ -251,10 +256,10 @@ HELP
           puts "scoping #{scope_type} #{scope_value}"
         end
       end
-    end
 
-    # All open sessions, needed to satisfy the Command::Processable include
-    def sessions
-      configuration.sessions.values
+      # All open sessions, needed to satisfy the Command::Processable include
+      def sessions
+        configuration.sessions.values
+      end
     end
 end

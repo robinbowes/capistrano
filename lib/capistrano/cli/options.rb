@@ -54,18 +54,18 @@ module Capistrano
             exit
           end
 
-					opts.on("-l", "--logger [STDERR|STDOUT|file]", 
-						"Choose logger method. STDERR used by default."
-					) do |value| 
-						options[:output] = if value.nil? || value.upcase == 'STDERR'
-																 # Using default logger.
-																 nil
-															 elsif value.upcase == 'STDOUT'
-																 $stdout
-															 else
-																 value
-															 end
-					end
+          opts.on("-l", "--logger [STDERR|STDOUT|file]",
+            "Choose logger method. STDERR used by default."
+          ) do |value|
+            options[:output] = if value.nil? || value.upcase == 'STDERR'
+                                 # Using default logger.
+                                 nil
+                               elsif value.upcase == 'STDOUT'
+                                 $stdout
+                               else
+                                 value
+                               end
+          end
 
           opts.on("-n", "--dry-run",
             "Prints out commands without running them."
@@ -201,7 +201,7 @@ module Capistrano
       def default_sysconf #:nodoc:
         File.join(sysconf_directory, "capistrano.conf")
       end
-      
+
       def default_dotfile #:nodoc:
         File.join(home_directory, ".caprc")
       end
@@ -211,7 +211,7 @@ module Capistrano
         # appropriate location for this file in Windows.
         ENV["SystemRoot"] || '/etc'
       end
-      
+
       def home_directory #:nodoc:
         ENV["HOME"] ||
           (ENV["HOMEPATH"] && "#{ENV["HOMEDRIVE"]}#{ENV["HOMEPATH"]}") ||

@@ -44,6 +44,12 @@ class ShellTest < Test::Unit::TestCase
     assert @shell.read_and_execute
   end
 
+  def test_set_with_colon_changes_setting
+    @shell.expects(:read_line).returns("set :random_setting value")
+    @shell.configuration.expects(:set).with(:random_setting, "value")
+    assert @shell.read_and_execute
+  end
+
   def test_text_without_with_or_on_gets_processed_verbatim
     @shell.expects(:read_line).returns("hello world")
     @shell.expects(:process_command).with(nil, nil, "hello world")
@@ -61,7 +67,7 @@ class ShellTest < Test::Unit::TestCase
     @shell.expects(:process_command).with("on", "app,db", "hello world")
     assert @shell.read_and_execute
   end
-  
+
   def test_task_command_with_bang_gets_processed_by_exec_tasks
     while_testing_post_exec_commands do
       @shell.expects(:read_line).returns("!deploy")
@@ -69,7 +75,7 @@ class ShellTest < Test::Unit::TestCase
       assert @shell.read_and_execute
     end
   end
-  
+
   def test_normal_command_gets_processed_by_exec_command
     while_testing_post_exec_commands do
       @shell.expects(:read_line).returns("uptime")
@@ -78,13 +84,13 @@ class ShellTest < Test::Unit::TestCase
       assert @shell.read_and_execute
     end
   end
-  
-  
+
+
   private
-  
+
   def while_testing_post_exec_commands(&block)
     @shell.instance_variable_set(:@mutex,Mutex.new)
     yield
   end
-  
+
 end
