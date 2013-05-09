@@ -5,12 +5,23 @@ require 'stringio'
 class LoggerTest < Test::Unit::TestCase
   def setup
     @io = StringIO.new
-    @logger = Capistrano::Logger.new(:output => @io)
+    # Turn off formatting for these tests. Formatting is tested in `logger_formatting_test.rb`.
+    @logger = Capistrano::Logger.new(:output => @io, :disable_formatters => true)
   end
 
   def test_logger_should_use_STDERR_by_default
     logger = Capistrano::Logger.new
     assert_equal STDERR, logger.device
+  end
+
+  def test_logger_should_have_log_level_0
+    logger = Capistrano::Logger.new
+    assert_equal 0, logger.level
+  end
+
+  def test_logger_should_use_level_form_options
+    logger = Capistrano::Logger.new :level => 4
+    assert_equal 4, logger.level
   end
 
   def test_logger_should_use_output_option_if_output_responds_to_puts

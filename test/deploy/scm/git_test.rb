@@ -15,7 +15,7 @@ class DeploySCMGitTest < Test::Unit::TestCase
 
   def test_head
     assert_equal "HEAD", @source.head
-    
+
     # With :branch
     @config[:branch] = "master"
     assert_equal "master", @source.head
@@ -36,11 +36,20 @@ class DeploySCMGitTest < Test::Unit::TestCase
     # With :scm_command
     git = "/opt/local/bin/git"
     @config[:scm_command] = git
-    assert_equal "#{git} clone -q git@somehost.com:project.git /var/www && cd /var/www && #{git} checkout -q -b deploy #{rev}", @source.checkout(rev, dest)
+    assert_equal "#{git} clone -q git@somehost.com:project.git /var/www && cd /var/www && #{git} checkout -q -b deploy #{rev}", @source.checkout(rev, dest).gsub(/\s+/, ' ')
 
     # with submodules
     @config[:git_enable_submodules] = true
-    assert_equal "#{git} clone -q git@somehost.com:project.git /var/www && cd /var/www && #{git} checkout -q -b deploy #{rev} && #{git} submodule -q init && #{git} submodule -q sync && #{git} submodule -q update --recursive", @source.checkout(rev, dest)
+    assert_equal "#{git} clone -q git@somehost.com:project.git /var/www && cd /var/www && #{git} checkout -q -b deploy #{rev} && #{git} submodule -q init && #{git} submodule -q sync && export GIT_RECURSIVE=$([ ! \"`#{git} --version`\" \\< \"git version 1.6.5\" ] && echo --recursive) && #{git} submodule -q update --init $GIT_RECURSIVE", @source.checkout(rev, dest).gsub(/\s+/, ' ')
+  end
+
+  def test_checkout_submodules_without_recursive
+    @config[:repository] = "git@somehost.com:project.git"
+    dest = "/var/www"
+    rev = 'c2d9e79'
+    @config[:git_enable_submodules] = true
+    @config[:git_submodules_recursive] = false
+    assert_equal "git clone -q git@somehost.com:project.git /var/www && cd /var/www && git checkout -q -b deploy #{rev} && git submodule -q init && git submodule -q sync && git submodule -q update --init", @source.checkout(rev, dest).gsub(/\s+/, ' ')
   end
 
   def test_checkout_with_verbose_should_not_use_q_switch
@@ -48,7 +57,15 @@ class DeploySCMGitTest < Test::Unit::TestCase
     @config[:scm_verbose] = true
     dest = "/var/www"
     rev = 'c2d9e79'
-    assert_equal "git clone  git@somehost.com:project.git /var/www && cd /var/www && git checkout  -b deploy #{rev}", @source.checkout(rev, dest)
+    assert_equal "git clone git@somehost.com:project.git /var/www && cd /var/www && git checkout -b deploy #{rev}", @source.checkout(rev, dest)
+  end
+
+  def test_checkout_with_verbose_off_should_use_q_switch
+    @config[:repository] = "git@somehost.com:project.git"
+    @config[:scm_verbose] = false
+    dest = "/var/www"
+    rev = 'c2d9e79'
+    assert_equal "git clone -q git@somehost.com:project.git /var/www && cd /var/www && git checkout -q -b deploy #{rev}", @source.checkout(rev, dest)
   end
 
   def test_diff
@@ -61,14 +78,23 @@ class DeploySCMGitTest < Test::Unit::TestCase
     assert_equal "git log master..branch", @source.log('master', 'branch')
   end
 
-  def test_query_revision
+  def test_query_revision_from_remote
     revision = @source.query_revision('HEAD') do |o|
       assert_equal "git ls-remote . HEAD", o
       "d11006102c07c94e5d54dd0ee63dca825c93ed61\tHEAD"
     end
     assert_equal "d11006102c07c94e5d54dd0ee63dca825c93ed61", revision
   end
-  
+
+  def test_query_revision_falls_back_to_local
+    revision = @source.query_revision('d11006') do |o|
+      return nil if o == "git ls-remote . d11006"
+      assert_equal "git rev-parse --revs-only d11006", o
+      "d11006102c07c94e5d54dd0ee63dca825c93ed61"
+    end
+    assert_equal "d11006102c07c94e5d54dd0ee63dca825c93ed61", revision
+  end
+
   def test_query_revision_has_whitespace
     revision = @source.query_revision('HEAD') do |o|
       assert_equal "git ls-remote . HEAD", o
@@ -92,16 +118,16 @@ class DeploySCMGitTest < Test::Unit::TestCase
   def test_sync
     dest = "/var/www"
     rev = 'c2d9e79'
-    assert_equal "cd #{dest} && git fetch -q origin && git reset -q --hard #{rev} && git clean -q -d -x -f", @source.sync(rev, dest)
+    assert_equal "cd #{dest} && git fetch -q origin && git fetch --tags -q origin && git reset -q --hard #{rev} && git clean -q -d -x -f", @source.sync(rev, dest)
 
     # With :scm_command
     git = "/opt/local/bin/git"
     @config[:scm_command] = git
-    assert_equal "cd #{dest} && #{git} fetch -q origin && #{git} reset -q --hard #{rev} && #{git} clean -q -d -x -f", @source.sync(rev, dest)
+    assert_equal "cd #{dest} && #{git} fetch -q origin && #{git} fetch --tags -q origin && #{git} reset -q --hard #{rev} && #{git} clean -q -d -x -f", @source.sync(rev, dest)
 
     # with submodules
     @config[:git_enable_submodules] = true
-    assert_equal "cd #{dest} && #{git} fetch -q origin && #{git} reset -q --hard #{rev} && #{git} submodule -q init && for mod in `#{git} submodule status | awk '{ print $2 }'`; do #{git} config -f .git/config submodule.${mod}.url `#{git} config -f .gitmodules --get submodule.${mod}.url` && echo Synced $mod; done && #{git} submodule -q sync && #{git} submodule -q update && #{git} clean -q -d -x -f", @source.sync(rev, dest)
+    assert_equal "cd #{dest} && #{git} fetch -q origin && #{git} fetch --tags -q origin && #{git} reset -q --hard #{rev} && #{git} submodule -q init && #{git} submodule -q sync && export GIT_RECURSIVE=$([ ! \"`#{git} --version`\" \\< \"git version 1.6.5\" ] && echo --recursive) && #{git} submodule -q update --init $GIT_RECURSIVE && #{git} clean -q -d -x -f", @source.sync(rev, dest)
   end
 
   def test_sync_with_remote
@@ -113,15 +139,25 @@ class DeploySCMGitTest < Test::Unit::TestCase
     @config[:repository] = repository
     @config[:remote] = remote
 
-    assert_equal "cd #{dest} && git config remote.#{remote}.url #{repository} && git config remote.#{remote}.fetch +refs/heads/*:refs/remotes/#{remote}/* && git fetch -q #{remote} && git reset -q --hard #{rev} && git clean -q -d -x -f", @source.sync(rev, dest)
+    assert_equal "cd #{dest} && git config remote.#{remote}.url #{repository} && git config remote.#{remote}.fetch +refs/heads/*:refs/remotes/#{remote}/* && git fetch -q #{remote} && git fetch --tags -q username && git reset -q --hard #{rev} && git clean -q -d -x -f", @source.sync(rev, dest)
   end
 
   def test_shallow_clone
     @config[:repository] = "git@somehost.com:project.git"
     @config[:git_shallow_clone] = 1
+    @config[:branch] = nil
     dest = "/var/www"
     rev = 'c2d9e79'
     assert_equal "git clone -q --depth 1 git@somehost.com:project.git /var/www && cd /var/www && git checkout -q -b deploy #{rev}", @source.checkout(rev, dest)
+  end
+
+  def test_shallow_clone_with_branch
+    @config[:repository] = "git@somehost.com:project.git"
+    @config[:git_shallow_clone] = 1
+    @config[:branch] = 'foobar'
+    dest = "/var/www"
+    rev = 'c2d9e79'
+    assert_equal "git clone -q -b foobar --depth 1 git@somehost.com:project.git /var/www && cd /var/www && git checkout -q -b deploy #{rev}", @source.checkout(rev, dest)
   end
 
   def test_remote_clone
@@ -138,7 +174,7 @@ class DeploySCMGitTest < Test::Unit::TestCase
     @config[:git_enable_submodules] = true
     dest = "/var/www"
     rev = 'c2d9e79'
-    assert_equal "git clone -q -o username git@somehost.com:project.git /var/www && cd /var/www && git checkout -q -b deploy #{rev} && git submodule -q init && git submodule -q sync && git submodule -q update --recursive", @source.checkout(rev, dest)
+    assert_equal "git clone -q -o username git@somehost.com:project.git /var/www && cd /var/www && git checkout -q -b deploy #{rev} && git submodule -q init && git submodule -q sync && export GIT_RECURSIVE=$([ ! \"`git --version`\" \\< \"git version 1.6.5\" ] && echo --recursive) && git submodule -q update --init $GIT_RECURSIVE", @source.checkout(rev, dest)
   end
 
   # Tests from base_test.rb, makin' sure we didn't break anything up there!
@@ -182,3 +218,4 @@ class DeploySCMGitTest < Test::Unit::TestCase
     assert_equal "/foo/bar/git", @source.command
   end
 end
+

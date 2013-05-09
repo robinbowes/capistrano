@@ -1,9 +1,3 @@
-begin
-  require 'rubygems'
-  gem 'net-ssh', ">= 2.0.10"
-rescue LoadError, NameError
-end
-
 require 'net/ssh'
 
 module Capistrano
@@ -69,12 +63,14 @@ module Capistrano
       # Once we've loaded the config, we don't need Net::SSH to do it again.
       ssh_options[:config] = false
 
+      ssh_options[:verbose] = :debug if options[:verbose] && options[:verbose] > 0
+
       user = server.user || options[:user] || ssh_options[:username] ||
              ssh_options[:user] || ServerDefinition.default_user
       port = server.port || options[:port] || ssh_options[:port]
 
       # the .ssh/config file might have changed the host-name on us
-      host = ssh_options.fetch(:host_name, server.host) 
+      host = ssh_options.fetch(:host_name, server.host)
 
       ssh_options[:port] = port if port
 

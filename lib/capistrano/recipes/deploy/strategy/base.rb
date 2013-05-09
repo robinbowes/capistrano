@@ -29,12 +29,16 @@ module Capistrano
         # is setup such that a deploy could succeed.
         def check!
           Dependencies.new(configuration) do |d|
-            d.remote.directory(configuration[:releases_path]).or("`#{configuration[:releases_path]}' does not exist. Please run `cap deploy:setup'.")
+            if exists?(:stage)
+              d.remote.directory(configuration[:releases_path]).or("`#{configuration[:releases_path]}' does not exist. Please run `cap #{configuration[:stage]} deploy:setup'.")
+            else
+              d.remote.directory(configuration[:releases_path]).or("`#{configuration[:releases_path]}' does not exist. Please run `cap deploy:setup'.")
+            end
             d.remote.writable(configuration[:deploy_to]).or("You do not have permissions to write to `#{configuration[:deploy_to]}'.")
             d.remote.writable(configuration[:releases_path]).or("You do not have permissions to write to `#{configuration[:releases_path]}'.")
           end
         end
-          
+
         protected
 
           # This is to allow helper methods like "run" and "put" to be more
@@ -52,7 +56,7 @@ module Capistrano
             cmd = args.join(' ')
             result = nil
             if RUBY_PLATFORM =~ /win32/
-							cmd = cmd.split(/\s+/).collect {|w| w.match(/^[\w+]+:\/\//) ? w : w.gsub('/', '\\') }.join(' ') # Split command by spaces, change / by \\ unless element is a some+thing:// 
+              cmd = cmd.split(/\s+/).collect {|w| w.match(/^[\w+]+:\/\//) ? w : w.gsub('/', '\\') }.join(' ') # Split command by spaces, change / by \\ unless element is a some+thing://
               cmd.gsub!(/^cd /,'cd /D ') # Replace cd with cd /D
               cmd.gsub!(/&& cd /,'&& cd /D ') # Replace cd with cd /D
               logger.trace "executing locally: #{cmd}"
@@ -65,7 +69,7 @@ module Capistrano
                 result = super
               end
             end
-            
+
             logger.trace "command finished in #{(elapsed * 1000).round}ms"
             result
           end
@@ -73,7 +77,7 @@ module Capistrano
         private
 
           def logger
-            @logger ||= configuration[:logger] || Capistrano::Logger.new(:output => STDOUT)
+            @logger ||= configuration.logger || Capistrano::Logger.new(:output => STDOUT)
           end
 
           # The revision to deploy. Must return a real revision identifier,

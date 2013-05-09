@@ -1,13 +1,11 @@
-begin
-  require 'rubygems'
-  require 'redgreen' unless ENV['TM_FILENAME']
-  gem     'mocha'
-rescue LoadError
-end
+require 'rubygems'
+require 'bundler/setup'
 
 require 'test/unit'
 require 'mocha'
+
 require 'capistrano/server_definition'
+require 'pry'
 
 module TestExtensions
   def server(host, options={})

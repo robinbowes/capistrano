@@ -1,15 +1,329 @@
-## 2.5.20
+## 2.15.4 / April 29 2013
 
-* Adds a check for the presence of `rsync` when using the copy strategy with `rsync`. (Chris Griego)
-* Do not try to look up the `:release_path` on servers which are defined `:no_release` (Chris Griego)
-* Tiny patch to the `CVS` SCM code to be Ruby 1.9 compatible (Martin Carpenter)
-* Changed the default `Git` submodule behaviour to use `--recursive`, Lighthouse Issue #176. (Lee Hambley)
-* `:public_children` can now be `set()`, with the default being as it ever was (Chris Griego) 
-* Fixing the load path in the default `Capfile` to search vendored/unpacked Gems. Lighthouse Issue #174 (Mari Carmen/Rafael García)
+* Fix parallel command logging (@gnufied)
+* Fix a double-asset manifest problem on Rails upgrades. (@jimryan)
+
+## 2.15.3 / April 25 2012
+
+* For deploy:cleanup, use try_sudo with rm command. (@joshstaiger)
+* Restore maintenance.rhtml (@chulkilee)
+* Fixes GH-434, If branches is an array of array, iterate them separately. (@gnufied)
+
+A big "thank you" to the people who've pushed really amazing patches to the
+2.15.x branch so soon after it's release. 2.15.0 was just too huge to go out
+bug free.
+
+## 2.15.2 / April 24 2013
+
+* Fixed a bug with asset_paths (String vs. Array). (@joeycarmello)
+
+## 2.15.1 / April 23 2013
+
+* Support for Rails 4 (and other) randomised asset manifest names. (@jimryan)
+
+## 2.15.0 / April 23 2013
+
+* New varaible :shared_assets_prefix to allow people to host somewhere other
+  than `/assets/`. Default is `assets`.
+* Bring back web:enable and web:disable tasks. Sincerely apologies to all affected
+  removing these was one of the most glaring mistakes we've made on this project
+  and I feel personally responsible.
+* Makes :git_shallow_clone work with branches (@cannikin)
+* Avoid removing required assets (@bosko)
+* Fix escaping of asset_paths when calling `deploy:finalize_update` (@mcary)
+* Improve parallel command logging (@mpapis)
+* Allow updating variables in the cap shell `cap> set :some_setting new_value`
+  (@jpfuentes2)
+* Add the option to configure `Capistrano::Logger.default_formatters=` this
+  relates to the previous merging of the capistrano-colors gem. (@kellyredding)
+* Don't attempt to connect to a nil `:gateway` (@mattheath)
+* Simplify our .gemspec dependency list (@timoschilling)
+* Make the existece of `config/deploy/{stage}.rb` optional, it'll be loaded if
+  it exists, otherwise we continue without it (@ymainier)
+* Misc spelling/typo fixes. (@mv)
+* Update mtime and atime with touch when fixing asset timestamps (@wildoats)
+* Change call of `rake {env} precompile:all` to drop the errornous `{env}` (@zxiest)
+* Evaluate assets_role at runtime using a lambda (@nlenepveu)
+* Handle when hosts (for example by joining/leaving the no_release meta group)
+  have different old releases for `deploy:cleanup` (@oggy)
+* Check for nil when tearing down connections (@yyuu)
+* Go back to using SCP for uploads as against SFTP (@pjungwir)
+* Added an option to dereference symlinks when using the :copy strategy
+  (`set :copy_dereference_symlink, true`) useful when your working directory
+  contains files symlinked in from outside your project root (@mehmetc)
+* Small typo fix in README (@yule)
+* Add Ruby 2.0.0-p0 to the TravisCI build (@jarrettmeyer)
+* Add the option to set the shared asset prefix for Rails,
+  (`set :shared_assets_prefix, "my_shared_assets"`) corresponds with it's
+  namesake in Rails. By default is set to `assets`. (@spectator)
+* Improved error messages for `cap {stage} deploy:check` (@petems)
+* Make `run_locally` work with the `--dry-run` flag. (@flagthisiskun)
+* Fix a link in the README to writing a good commit message. (@mhutchin)
+* Code style fixes (@mv)
+* Report differently if the command was killed by a signal (for example the
+  oom killer on Ubuntu/Debian). (@tanob)
+
+
+## 2.14.0 / January 9 2013
+
+* Removed ui.output_cols limit of 80 chars (@aussielunix)
+* Added :p4charset variable for Perforce command line (@randyinla)
+* Added support for rolling back assets, and removing expired assets (@ndbroadbent)
+* Merged in `capistrano_colors` gem, and renamed to 'log_formatters', since it does much more than just colors
+  (@ndbroadbent)
+* Use more intelligence in setting the :scm variable based on known version control directory names (@czarneckid)
+* Remove the deploy:web:{disable, enable} tasks (@carsomyr)
+* Group finalize_update shell commands into one command, harden shell calls with #shellescape, and separate arguments
+  with -- (@ndbroadbent)
+
+## 2.13.0 / August 21 2012
+
+This release contains multiple bugfixes and handling of exotic situations. The
+`Configuration#capture` method should now work in spite of `ActiveSupport`
+shenanigans. Thank you, the community, for all of your contributions:
+
+ * Close input streams when sending commands that don't read input. Dylan Smith
+   (dylanahsmith)
+ * Listen for method definition on `Kernel` and undefine on `Namespace`. Chris
+   Griego (cgriego)
+ * Fixed shell `Thread.abort_on_exception` bug. George Malamidis (nutrun)
+ * Adding a log method to `Capistrano::Deploy::SCM::None` to maintain
+   consistency with other SCM classes. Kevin Lawver (kplawver)
+ * Add deprecation warning if someone uses old `deploy:symlink` syntax on
+   callbacks. Ken Mazaika (kenmazaika)
+ * Simplify the `finalize_update` code by respecting the `:shared_children`
+   variable during removal and recreation of the parent. John Knight
+   (knightlabs)
+
+## 2.12.0 / April 13 2012
+
+This release reverts the very verbose logging introduced in the previous version, it also
+enables a handful of power-user features which are largely un-documented, but shouldn't be
+important unless you are looking for them. Undocumented code shouldn't scare you, simply
+read through deploy.rb in the Gem if you want to know how a new feature works!
+
+ * Update mapped commands to remove symlink deprecation warning. Despo Pentara (despo)
+ * Add the "rpm" remote dependency. Nick Hoffman (nickhoffman)
+ * Add commented deploy:cleanup task to default recipe. Jean-Philippe Doyle (j15e)
+ * Teach deploy:web:enable to fail gracefully. Lee Marlow (lmarlow)
+ * Ticket 193 alias task show wrong name when it is not overridden. Rafa García (rgo)
+ * Allow configuration of which roles assets are precompiled on. Frederick Cheung (fcheung)
+ * Fix transfer action to honor dry-run flag. Serg Podtynnyi (shtirlic)
+ * Changed single to double quotes for Windows, fixes a Windows bug in the HG module. Matthew J Morrison (mattjmorrison)
+ * Add UnsharedRemoteCache (copied from eycap gem). Ben Symonds (bensymonds)
+
+As ever, a sincere thanks to all contributors, and do not hesitate to contact me if this
+release causes problems for you.
+
+## 2.11.0 / Febuary 20 2012
+
+This release replaces and fixes a broken 2.10.0 release (see below for
+information)
+
+This release includes all fixes as documented for 2.10.0, plus additional code
+cleanup (SHA: 3eecac2), as well as changing the public API from
+`deploy:symlink`, to `deploy:create_symlink`
+
+* Remove a testing dependency on `ruby-debug` (Lee Hambley, reported by Serg
+Podtynnyi)
+
+* Formerly deprecate `deploy:symlink`, this move was prompted by the Rake
+namespace fiasco of their 0.9.0 release, and is replaced by
+`deploy:create_symlink`. If you are looking for a place to hook asset related
+tasks, please consider `deploy:finalize_update`. Replaced by
+`deploy:create_symlink`, `deploy:symlink` now raises a deprecation warning,
+and defers to `deploy:symlink`. (Lee Hambley)
+
+* Update the 2.10.0 changelog. (Lee Hambley, reported by Jérémy Lecour)
+
+## 2.10.0 / Febuary 19 2012
+
+If you are reading this after Febuary 20th 2012, do not be surprised when you
+cannot find 2.10.0 on Rubygems.org, it has been removed because of a breaking
+API change. It is replaced logically enough by 2.11.0 where the API is still
+changed, but now issues a warning and falls back to the expected behaviour.
+
+The CHANGELOG for this release was updated retrospectively, I'm sorry I missed
+that when releasing the gem, 2.10.0 apparently not my finest hour as a
+maintainer.
+
+Ths fixes in this release include
+
+* Include sample NGinx config for `deploy:web:disable`(added by Roger Ertesvåg)
+
+* Fix gemspec time format warning (reported by Tony Arcieri, fixed by building the Gem against Ruby-1.9.3)
+
+* Finally removed deprecated `before_` and `after_` tasks. (Lee Hambley)
+
+* Rake 0.9.x compatibility (reported by James Miller, fixed by Lee Hambley)
+
+* More detailed logging output (fixed by Huang Liang)
+
+* Includes multistage, without `capistrano-ext`. `require 'capistrano/ext/multistage'` (fixed by Lee Hambley)
+
+## 2.9.0 / September 24 2011
+
+A vairly heavy release, including some new features which most of you won't
+need, but power users have contributed, this also marks the beginning of the
+end of the 2.x series, more information will follow in due course, but with
+the proliferation of Bundler, and better ways to do deployment, we will be
+introducing heavier changes to Capistrano to keep the tool current.
+
+**Please note, following some reported problems with the asset pipeline code
+being not found, remember Capistrano needs to be in your Gemfile, and as such
+needs to be run with Bundler, otherwise you risk loading a system-wide version
+of Capistrano who's behaviour might be different from that specified in your
+Gemfile. This is also good practice because much of the deploy logic resides
+in the Gem, and you wouldn't want that to change without your knowledge. Rails
+applications include Cap in the Gemfile anyway, you should follow this
+convention.**
+
+* find_servers() will no longer raise if there are no servers, this behaviour
+can be modified by way of the `:on_no_matching_servers` option. Thanks to
+`@ppgengler`.
+
+* Short Git SHA1 fragments are now supported in commands such as `cap deploy
+-s revision=d7e99f` thanks to `@ndbroadbent`.
+
+* One can now specify individual SCM commands by setting
+`:scm_arguments_<command_name>`. Thanks to `@alextk`.
+
+* Travis CI build now passes thanks to @andrew, build tested against MRI
+`1.8.7`. `1.9.2` and `REE`.
+
+* Support for Perforce labels, I don't know much about this, but I believe
+it's much like deploying a Git tag, thanks to `@ak47`.
+
+* Git SCM now correctly adheres to the `:scm_verbose` setting. Thanks
+`@dubek`.
+
+* `set()` can now be used to set a `false` value, previously this was a no-op.
+Thanks to `@nilbus`.
+
+* Support for Git 1.6x submodules, The Git SCM strategy now queries Git on the
+server-side to ensure it supports the `--recursive` flag, if it doesn't then
+it will fall back to using the long-hand. Many thanks to all those involved in
+the discussion surrounding this topic, and to `@nilbus` for a beautifully
+clean solution which doesn't hold us back.
+
+* When using `:cached_copy` with Subversion, use `svn switch` to for more
+reliable switching of branches/etc. Thanks to `@iGEL` for the patch that we
+accepted finally, and to `@richmeyers` who also submitted a patch and
+contributed to the discssion.
+
+Other cleanups and minor improvements to the code and tests were committed by yours truly
+(@leehambley), @maxim, @ak47 and @andrew).
+
+## 2.8.0 / August 3 2011
+
+A short release, after the last. Announcing Rails 3.1 asset pipeline support.
+
+The asset pipeline support requires an additiona `load` in your `Capfile`.
+
+You can see information pertaining to the pull request, including the inline
+comments here: https://github.com/capistrano/capistrano/pull/35
+
+Documentation will be available soon in the wiki.
+
+* Drop-In Rails 3.1 asset pipeline support. (Chris Griego)
+
+## 2.7.0 / August 3 2011
+
+A fairly substantial release. There are fixes so that current_release works
+during dry-runs, (although, apparently still not with bundler.)
+
+The test-suite was also modified to work with Ruby 1.9.2, except in one case
+where Ruby 1.9.x calls `to_ary` and `to_a` on mocks, which still makes an
+error. 1.9.x has always been supported, but due to lack of maintenance on my
+part the tests didn't ever pass.
+
+The `start`, `stop` and `restart` tasks have been reduced to mere hooks into
+which extensions can define their own functionality.
+
+The `readme` was also slightly improved, simply tweaks to express how best to
+run the test suite.
+
+* Ensure dry-run works with `:current_release` variable (Carol Nichols)
+* Added a new variable `:git_submodules_recursive`, setting the value to false
+will ensure Git doesn't recursively initialize and checkout submodules. (Konstantin Kudryashov)
+* Added an additional task option, `:on_no_matching_servers`, setting the
+value to `:continue` will ensure tasks with no matched servers continue
+without error, instead of raising `Capistrano::NoMatchingServersError` as was
+the previous behaviour. (Chris Griego)
+
+A huge thanks to all contributors, as always!
+
+Remember: @capistranorb on twitter for news.
+
+## 2.6.1 / June 25 2011
+
+A short maintenance release, Some fixes to the verbose flag inside the Git SCM
+as well as another argument for the (internal) `variable()` command, offering
+a default. The Git SCM is now verbose by default, but can be disabled by
+setting `:scm_verbose` to false.
+
+There has been an additional method added to string, within the context of the
+test suite, I'm always sketchy about adding additional methods to core
+classes, but it's a short term fix until I make the time to patch the test
+suite not to compare strings literally. The method is `String#compact`, and is
+implemented simply as `self.gsub(/\s+/, ' ')`.
+
+Here's the run-down of changes, and their committers, as always - a huge thank
+you to the community that continues to drive Capistrano's development.
+
+* `deploy:setup` now respects `:group_writable` (Daniel Duvall)
+* Fixes to `:scm_verbose` for the Git module (defaults to On.) (Matthew Davies)
+* Will now copy hidden files in the project's root into the release
+directory (Mark Jaquith)
+* Now handles closing already-dead connections in a sane way (does not raise
+an exception) (Will Bryant)
+* Renamed `Capistrano::VERSION::TINY` to `Capistrano::VERSION::PATCH` (Lee
+Hambley)
+* Removed the `VERSION` file (Lee Hambley)
+
+## 2.6.0 / May 3 2011
+
+A rather large release, feature-version bump because of the new
+multiple-gateways feature as implemented by Ryan Duryea (way to go!)
+
+Please also note from this release that if you use Git submodules, the
+Git-version requirement for the new implementation is now >= 1.5.6, from
+previously un-documented. (1.5.6 is new-enough that I think this is
+acceptable)
+
+  * Upgrade Net::SSH-gateway dependency to 1.1 (fixes a thread-deadlocking bug on MRI  1.9)
+  * Respect "dry-run" on transfer methods (Florian Frank)
+  * Add support for multiple gateways: (Ryan Duryea)
+        set :gateway, {
+          'gate1.example.com' => 'server1.example.com',
+          [ 'gate2.example.com', 'gate3.example.com' ] => [ 'server5.example.com', 'server6.example.com' ]
+        }
+  * Properly support nested Git submodules, moves Git requirement to >= 1.5.6 [if  you rely upon submodules] (Ken Miller)
+  * Fetch tags into the remote cache, allows deploying a tag when using Git, with the remote_cache strategy (Florian Frank)
+  * Various fixes to path handling bugs in the copt strategy. (Philippe Rathé)
+
+## 2.5.21 / April 6 2011
+
+  * Fixed to follow best-practice guidelines from Bundler (Ben Langfeld)
+  * No longer force a gemset for Capistrano development. (Ben Langfeld)
+
+## 2.5.20 / March 16 2011
+
+  * `deploy:migrations` will now always operate on the latest_release, not
+  current_release (Mike Vincent)
+  * Adds a check for the presence of `rsync` when using the copy strategy with `rsync`. (Chris Griego)
+  * Do not try to look up the `:release_path` on servers which are defined `:no_release` (Chris Griego)
+  * Tiny patch to the `CVS` SCM code to be Ruby 1.9 compatible (Martin Carpenter)
+  * Changed the default `Git` submodule behaviour to use `--recursive`, Lighthouse Issue #176. (Lee Hambley)
+  * `:public_children` can now be `set()`, the default is unchanged, thanks (Chris Griego)
+  * Fixing the load path in the default `Capfile` to search vendored/unpacked Gems. Lighthouse Issue #174 (Mari Carmen/Rafael García)
+  * Adds a `maintenance_basename` variable (default value is `maintenance`) to allow you to set the maintenance page name (Celestino Gomes)
+  * Spelling fixes in inline-documentation (Tom Copeland)
+  * Make `zip` and `tar` handle symlinks the same way (zip follows symlinks by default, tar needs the option `-h`) (Ross Cooperman)
 
 ## 2.5.19 / June 21, 2010
 
-Small bug fixes, no improvements for people who weren't experiencing problems anyway. 
+  * Small bug fixes, no improvements for people who weren't experiencing problems anyway.
 
 ## 2.5.18 / March 14, 2010
 
@@ -58,7 +372,7 @@ Fixes a low-value bug, thanks to Chris G for the well submitted patch:
 
 * Fixes Darcs remote repository problem when using the copy strategy [Alex `regularfry` Young]
 * Documentation improvements for embedding Capistrano [Lee Hambley]
-* Fixes ticket #95 -formally deprecating the before_something and after_something methods [Lee Hambley] 
+* Fixes ticket #95 -formally deprecating the before_something and after_something methods [Lee Hambley]
 
 ## 2.5.9 / 1 August 2009
 
@@ -73,7 +387,7 @@ Fixes a low-value bug, thanks to Chris G for the well submitted patch:
   * #77  - Copy command doesn't work on Solaris due to tar/gtar
   * #76  - Invalid Subversion URL
   * Improved web:disable task, now suggests a .htaccess block to use suggested by Rafael García
-  * Includes more logger options (can now select stdout, stderr of a file) [Rafael García] 
+  * Includes more logger options (can now select stdout, stderr of a file) [Rafael García]
 
 ## 2.5.8 / July 2009
 
@@ -223,7 +537,7 @@ Fixes a low-value bug, thanks to Chris G for the well submitted patch:
 * Added :normalize_asset_timestamps option to deployment, defaulting to true, which allows asset timestamping to be disabled [John Trupiano]
 
 
-## 2.4.0 Preview Release #1 (2.3.101) / June 5, 2008 
+## 2.4.0 Preview Release #1 (2.3.101) / June 5, 2008
 
 * Only make deploy:start, deploy:stop, and deploy:restart try sudo as :runner. The other sudo-enabled tasks (deploy:setup, deploy:cleanup, etc.) will now use the :admin_runner user (which by default is unset). [Jamis Buck]
 
@@ -251,7 +565,7 @@ Fixes a low-value bug, thanks to Chris G for the well submitted patch:
 
 * Revert "make sudo helper play nicely with complex command chains", since it broke stuff [Jamis Buck]
 
-* Make set(:default_shell, false) work for not using a shell on a per-command basis [Ryan McGeary] 
+* Make set(:default_shell, false) work for not using a shell on a per-command basis [Ryan McGeary]
 
 * Improved test coverage [Ryan McGeary]
 
@@ -459,7 +773,7 @@ Fixes a low-value bug, thanks to Chris G for the well submitted patch:
 
 
 ## 1.99.2 (2.0 Preview 3) / June 15, 2007
- 
+
 * CVS SCM module [Brian Phillips]
 
 * Fix typo in Perforce SCM module [Chris Bailey]
@@ -669,7 +983,7 @@ Fixes a low-value bug, thanks to Chris G for the well submitted patch:
       on_rollback { run "ln -nfs #{previous_release} #{current_path}" }
       run "ln -nfs #{current_release} #{current_path}"
     end
-    
+
     cap symlink # will not run on 192.168.0.3
 
 * Deprecate the -r/--recipe switch in favor of -f/--file (for more make/rake-like semantics) [Jamis Buck]
@@ -685,7 +999,7 @@ Fixes a low-value bug, thanks to Chris G for the well submitted patch:
     task :setup, :roles => [ :app, :web, :db ]
       # normally this would run every where
     end
-    
+
     ROLES=app cap setup # this will only run for the app role, overwritting the default declaration
 
 * Added :hosts option to task definition that allows you to specify cross-cutting tasks [DHH]. Example:

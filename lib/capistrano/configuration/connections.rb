@@ -24,13 +24,29 @@ module Capistrano
       class GatewayConnectionFactory #:nodoc:
         def initialize(gateway, options)
           @options = options
-          @options[:logger].debug "Creating gateway using #{[*gateway].join(', ')}" if @options[:logger]
           Thread.abort_on_exception = true
-          @gateways = [*gateway].collect { |g| ServerDefinition.new(g) }
-          tunnel = SSH.connection_strategy(@gateways[0], @options) do |host, user, connect_options|
+          @gateways = {}
+          if gateway.is_a?(Hash)
+            @options[:logger].debug "Creating multiple gateways using #{gateway.inspect}" if @options[:logger]
+            gateway.each do |gw, hosts|
+              gateway_connection = add_gateway(gw)
+              [*hosts].each do |host|
+                @gateways[:default] ||= gateway_connection
+                @gateways[host] = gateway_connection
+              end
+            end
+          else
+            @options[:logger].debug "Creating gateway using #{[*gateway].join(', ')}" if @options[:logger]
+            @gateways[:default] = add_gateway(gateway)
+          end
+        end
+
+        def add_gateway(gateway)
+          gateways = [*gateway].collect { |g| ServerDefinition.new(g) }
+          tunnel = SSH.connection_strategy(gateways[0], @options) do |host, user, connect_options|
             Net::SSH::Gateway.new(host, user, connect_options)
           end
-          @gateway = (@gateways[1..-1]).inject(tunnel) do |tunnel, destination|
+          (gateways[1..-1]).inject(tunnel) do |tunnel, destination|
             @options[:logger].debug "Creating tunnel to #{destination}" if @options[:logger]
             local_host = ServerDefinition.new("127.0.0.1", :user => destination.user, :port => tunnel.open(destination.host, (destination.port || 22)))
             SSH.connection_strategy(local_host, @options) do |host, user, connect_options|
@@ -38,13 +54,17 @@ module Capistrano
             end
           end
         end
-        
+
         def connect_to(server)
           @options[:logger].debug "establishing connection to `#{server}' via gateway" if @options[:logger]
-          local_host = ServerDefinition.new("127.0.0.1", :user => server.user, :port => @gateway.open(server.host, server.port || 22))
+          local_host = ServerDefinition.new("127.0.0.1", :user => server.user, :port => gateway_for(server).open(server.host, server.port || 22))
           session = SSH.connect(local_host, @options)
           session.xserver = server
           session
+        end
+
+        def gateway_for(server)
+          @gateways[server.host] || @gateways[:default]
         end
       end
 
@@ -86,8 +106,8 @@ module Capistrano
       # establish connections to servers defined via ServerDefinition objects.
       def connection_factory
         @connection_factory ||= begin
-          if exists?(:gateway)
-            logger.debug "establishing connection to gateway `#{fetch(:gateway)}'"
+          if exists?(:gateway) && !fetch(:gateway).nil? && !fetch(:gateway).empty?
+            logger.debug "establishing connection to gateway `#{fetch(:gateway).inspect}'"
             GatewayConnectionFactory.new(fetch(:gateway), self)
           else
             DefaultConnectionFactory.new(self)
@@ -118,9 +138,42 @@ module Capistrano
       # Destroys sessions for each server in the list.
       def teardown_connections_to(servers)
         servers.each do |server|
-          sessions[server].close
-          sessions.delete(server)
+          begin
+            session = sessions.delete(server)
+            session.close if session
+          rescue IOError, Net::SSH::Disconnect
+            # the TCP connection is already dead
+          end
         end
+      end
+
+      # Determines the set of servers within the current task's scope
+      def filter_servers(options={})
+        if task = current_task
+          servers = find_servers_for_task(task, options)
+
+          if servers.empty?
+            if ENV['HOSTFILTER'] || task.options.merge(options)[:on_no_matching_servers] == :continue
+              logger.info "skipping `#{task.fully_qualified_name}' because no servers matched"
+            else
+              unless dry_run
+                raise Capistrano::NoMatchingServersError, "`#{task.fully_qualified_name}' is only run for servers matching #{task.options.inspect}, but no servers matched"
+              end
+            end
+          end
+
+          if task.continue_on_error?
+            servers.delete_if { |s| has_failed?(s) }
+          end
+        else
+          servers = find_servers(options)
+          if servers.empty? && !dry_run
+            raise Capistrano::NoMatchingServersError, "no servers found to match #{options.inspect}" if options[:on_no_matching_servers] != :continue
+          end
+        end
+
+        servers = [servers.first] if options[:once]
+        [task, servers.compact]
       end
 
       # Determines the set of servers within the current task's scope and
@@ -129,28 +182,8 @@ module Capistrano
       def execute_on_servers(options={})
         raise ArgumentError, "expected a block" unless block_given?
 
-        if task = current_task
-          servers = find_servers_for_task(task, options)
-
-          if servers.empty?
-            if ENV['HOSTFILTER']
-              logger.info "skipping `#{task.fully_qualified_name}' because no servers matched"
-              return
-            else
-              raise Capistrano::NoMatchingServersError, "`#{task.fully_qualified_name}' is only run for servers matching #{task.options.inspect}, but no servers matched"
-            end
-          end
-
-          if task.continue_on_error?
-            servers.delete_if { |s| has_failed?(s) }
-            return if servers.empty?
-          end
-        else
-          servers = find_servers(options)
-          raise Capistrano::NoMatchingServersError, "no servers found to match #{options.inspect}" if servers.empty?
-        end
-
-        servers = [servers.first] if options[:once]
+        task, servers = filter_servers(options)
+        return if servers.empty?
         logger.trace "servers: #{servers.map { |s| s.host }.inspect}"
 
         max_hosts = (options[:max_hosts] || (task && task.max_hosts) || servers.size).to_i

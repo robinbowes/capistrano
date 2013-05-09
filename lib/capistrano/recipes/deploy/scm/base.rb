@@ -161,11 +161,11 @@ module Capistrano
 
           # A helper for accessing variable values, which takes into
           # consideration the current mode ("normal" vs. "local").
-          def variable(name)
+          def variable(name, default = nil)
             if local? && configuration.exists?("local_#{name}".to_sym)
-              return configuration["local_#{name}".to_sym]
+              return configuration["local_#{name}".to_sym].nil? ? default : configuration["local_#{name}".to_sym]
             else
-              configuration[name]
+              configuration[name].nil? ? default : configuration[name]
             end
           end
 
@@ -186,8 +186,12 @@ module Capistrano
             variable(:repository)
           end
 
-          def arguments
-            variable(:scm_arguments)
+          def arguments(command = :all)
+            value = variable(:scm_arguments)
+            if value.is_a?(Hash)
+              value = value[command]
+            end
+            value
           end
       end
 

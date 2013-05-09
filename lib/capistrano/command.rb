@@ -17,7 +17,7 @@ module Capistrano
       include Enumerable
 
       class Branch
-        attr_accessor :command, :callback
+        attr_accessor :command, :callback, :condition
         attr_reader :options
 
         def initialize(command, options, callback)
@@ -43,14 +43,17 @@ module Capistrano
           true
         end
 
-        def to_s
-          command.inspect
+        def to_s(parallel=false)
+          if parallel && @condition
+            "#{condition.inspect} :: #{command.inspect}"
+          else
+            command.inspect
+          end
         end
       end
 
       class ConditionBranch < Branch
         attr_accessor :configuration
-        attr_accessor :condition
 
         class Evaluator
           attr_reader :configuration, :condition, :server
@@ -89,9 +92,12 @@ module Capistrano
         def match(server)
           Evaluator.new(configuration, condition, server).result
         end
+      end
 
-        def to_s
-          "#{condition.inspect} :: #{command.inspect}"
+      class ElseBranch < Branch
+        def initialize(command, options, callback)
+          @condition = "else"
+          super(command, options, callback)
         end
       end
 
@@ -106,7 +112,7 @@ module Capistrano
       end
 
       def else(command, &block)
-        @fallback = Branch.new(command, {}, block)
+        @fallback = ElseBranch.new(command, {}, block)
       end
 
       def branches_for(server)
@@ -221,6 +227,7 @@ module Capistrano
 
                   ch.exec(command_line)
                   ch.send_data(options[:data]) if options[:data]
+                  ch.eof! if options[:eof]
                 else
                   # just log it, don't actually raise an exception, since the
                   # process method will see that the status is not zero and will
@@ -242,6 +249,13 @@ module Capistrano
                 ch[:status] = data.read_long
               end
 
+              channel.on_request("exit-signal") do |ch, data|
+                if logger
+                  exit_signal = data.read_string
+                  logger.important "command received signal #{exit_signal}", ch[:server]
+                end
+              end
+
               channel.on_close do |ch|
                 ch[:closed] = true
               end
@@ -261,7 +275,10 @@ module Capistrano
       end
 
       def replace_placeholders(command, channel)
-        command.gsub(/\$CAPISTRANO:HOST\$/, channel[:host])
+        roles = @tree.configuration && @tree.configuration.role_names_for_host(channel[:server])
+        command = command.gsub(/\$CAPISTRANO:HOST\$/, channel[:host])
+        command.gsub!(/\$CAPISTRANO:HOSTROLES\$/, roles.join(',')) if roles
+        command
       end
 
       # prepare a space-separated sequence of variables assignments

@@ -1,15 +1,19 @@
 require "utils"
 require 'capistrano/configuration/actions/invocation'
+require 'capistrano/configuration/actions/file_transfer'
 
 class ConfigurationActionsInvocationTest < Test::Unit::TestCase
   class MockConfig
     attr_reader :options
     attr_accessor :debug
     attr_accessor :dry_run
-		attr_accessor :preserve_roles
+    attr_accessor :preserve_roles
+    attr_accessor :servers
+    attr_accessor :roles
 
     def initialize
       @options = {}
+      @servers = []
     end
 
     def [](*args)
@@ -24,13 +28,21 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
       @options.fetch(*args)
     end
 
+    def filter_servers(options = {})
+      [nil, @servers]
+    end
+
+    def execute_on_servers(options = {})
+      yield @servers
+    end
+
     include Capistrano::Configuration::Actions::Invocation
+    include Capistrano::Configuration::Actions::FileTransfer
   end
 
   def setup
-    @config = MockConfig.new
+    @config = make_config
     @original_io_proc = MockConfig.default_io_proc
-    @config.stubs(:logger).returns(stub_everything)
   end
 
   def teardown
@@ -38,7 +50,7 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
   end
 
   def test_run_options_should_be_passed_to_execute_on_servers
-    @config.expects(:execute_on_servers).with(:foo => "bar")
+    @config.expects(:execute_on_servers).with(:foo => "bar", :eof => true)
     @config.run "ls", :foo => "bar"
   end
 
@@ -46,6 +58,15 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
     @config.expects(:dry_run).returns(true)
     @config.expects(:execute_on_servers).never
     @config.run "ls", :foo => "bar"
+  end
+
+  def test_put_wont_transfer_if_dry_run
+    config = make_config
+    config.dry_run = true
+    config.servers = %w[ foo ]
+    config.expects(:execute_on_servers).never
+    ::Capistrano::Transfer.expects(:process).never
+    config.put "foo", "bar", :mode => 0644
   end
 
   def test_add_default_command_options_should_return_bare_options_if_there_is_no_env_or_shell_specified
@@ -97,6 +118,11 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
   def test_sudo_should_default_to_sudo
     @config.expects(:run).with("sudo -p 'sudo password: ' ls", {})
     @config.sudo "ls"
+  end
+
+  def test_sudo_should_keep_input_stream_open
+    @config.expects(:execute_on_servers).with(:foo => "bar")
+    @config.sudo "ls", :foo => "bar"
   end
 
   def test_sudo_should_use_sudo_variable_definition
@@ -187,7 +213,7 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
     a = mock("channel", :called => true)
     b = mock("stream", :called => true)
     c = mock("data", :called => true)
-  
+
     callback[a, b, c]
   end
 
@@ -201,7 +227,44 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
     @config.invoke_command("ls", :once => true, :via => :foobar)
   end
 
+  def test_parallel_command_execution_with_no_match
+    assert_block("should not raise argument error") do
+      begin
+        @config.parallel do |session|
+          session.when("in?(:app)", "ls") {|ch,stream,data| puts "noop"}
+          session.when("in?(:db)", "pwd") {|ch,stream,data| puts "noop"}
+        end
+        true
+      rescue
+        false
+      end
+    end
+  end
+
+  def test_parallel_command_execution_with_matching_servers
+    @config.expects(:execute_on_servers)
+    assert_block("should not raise Argument error") do
+      begin
+        @config.servers = [:app, :db]
+        @config.roles = {:app => [:app], :db => [:db] }
+        @config.parallel do |session|
+          session.when("in?(:app)", "ls") {|ch,stream,data| puts "noop"}
+          session.when("in?(:db)", "pwd") {|ch,stream,data| puts "noop"}
+        end
+        true
+      rescue
+        false
+      end
+    end
+  end
+
   private
+
+    def make_config
+      config = MockConfig.new
+      config.stubs(:logger).returns(stub_everything)
+      config
+    end
 
     def inspectable_proc
       Proc.new do |ch, stream, data|

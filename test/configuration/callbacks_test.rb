@@ -39,9 +39,33 @@ class ConfigurationCallbacksTest < Test::Unit::TestCase
     @config.before :bar, :foo, "bing:blang", :zip => :zing
   end
 
+  def test_before_should_map_before_deploy_symlink
+    @config.before "deploy:symlink", "bing:blang", "deploy:symlink"
+    assert_equal "bing:blang", @config.callbacks[:before][0].source
+    assert_equal "deploy:create_symlink", @config.callbacks[:before][1].source
+    assert_equal ["deploy:create_symlink"], @config.callbacks[:before][1].only
+  end
+
+  def test_before_should_map_before_deploy_symlink_array
+    @config.before ["deploy:symlink", "bingo:blast"], "bing:blang"
+    assert_equal ["deploy:create_symlink", "bingo:blast"], @config.callbacks[:before].last.only
+  end
+
   def test_after_should_delegate_to_on
     @config.expects(:on).with(:after, :foo, "bing:blang", {:only => :bar, :zip => :zing})
     @config.after :bar, :foo, "bing:blang", :zip => :zing
+  end
+
+  def test_after_should_map_before_deploy_symlink
+    @config.after "deploy:symlink", "bing:blang", "deploy:symlink"
+    assert_equal "bing:blang", @config.callbacks[:after][0].source
+    assert_equal "deploy:create_symlink", @config.callbacks[:after][1].source
+    assert_equal ["deploy:create_symlink"], @config.callbacks[:after][1].only
+  end
+
+  def test_after_should_map_before_deploy_symlink_array
+    @config.after ["deploy:symlink", "bingo:blast"], "bing:blang"
+    assert_equal ["deploy:create_symlink", "bingo:blast"], @config.callbacks[:after].last.only
   end
 
   def test_on_with_single_reference_should_add_task_callback
@@ -102,7 +126,7 @@ class ConfigurationCallbacksTest < Test::Unit::TestCase
     assert_equal 1, @config.callbacks[:before].length
     assert_equal %w(primary), @config.callbacks[:before].first.except
   end
-  
+
   def test_on_without_tasks_or_block_should_raise_error
     assert_raises(ArgumentError) { @config.on(:before) }
   end
@@ -174,47 +198,4 @@ class ConfigurationCallbacksTest < Test::Unit::TestCase
     assert_equal [task], @config.called
   end
 
-  def test_execute_task_with_named_before_hook_should_call_named_before_hook
-    ns = stub("namespace", :default_task => nil, :name => "old", :fully_qualified_name => "any:old")
-    task = stub(:fully_qualified_name => "any:old:thing", :name => "thing", :namespace => ns)
-    before_task = stub(:fully_qualified_name => "any:old:before_thing", :name => "before_thing", :namespace => ns)
-
-    ns.stubs(:search_task).returns(nil)
-    ns.expects(:search_task).with("before_thing").returns(before_task)
-
-    @config.execute_task(task)
-    assert_equal [before_task, task], @config.called
-  end
-
-  def test_execute_task_with_named_after_hook_should_call_named_after_hook
-    ns = stub("namespace", :default_task => nil, :name => "old", :fully_qualified_name => "any:old")
-    task = stub(:fully_qualified_name => "any:old:thing", :name => "thing", :namespace => ns)
-    after_task = stub(:fully_qualified_name => "any:old:after_thing", :name => "after_thing", :namespace => ns)
-
-    ns.stubs(:search_task).returns(nil)
-    ns.expects(:search_task).with("after_thing").returns(after_task)
-
-    @config.execute_task(task)
-    assert_equal [task, after_task], @config.called
-  end
-
-  def test_execute_task_with_on_hooks_should_trigger_hooks_around_task
-    ns = stub("namespace", :default_task => nil, :name => "old", :fully_qualified_name => "any:old")
-    task = stub(:fully_qualified_name => "any:old:thing", :name => "thing", :namespace => ns)
-    before_task = stub(:fully_qualified_name => "any:old:before_thing", :name => "before_thing", :namespace => ns)
-    after_task = stub(:fully_qualified_name => "any:old:after_thing", :name => "after_thing", :namespace => ns)
-
-    ns.stubs(:search_task).returns(nil)
-    ns.expects(:search_task).with("before_thing").returns(before_task)
-    ns.expects(:search_task).with("after_thing").returns(after_task)
-
-    @config.before("any:old:thing", :first_this, :then_this)
-    @config.after("any:old:thing", :and_then_this, :lastly_this)
-
-    [:first_this, :then_this, :and_then_this, :lastly_this].each do |t|
-      @config.expects(:find_and_execute_task).with(t)
-    end
-
-    @config.execute_task(task)
-  end
 end

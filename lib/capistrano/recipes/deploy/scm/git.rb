@@ -134,30 +134,34 @@ module Capistrano
           remote = origin
 
           args = []
+
+          # Add an option for the branch name so :git_shallow_clone works with branches
+          args << "-b #{variable(:branch)}" unless variable(:branch).nil?
           args << "-o #{remote}" unless remote == 'origin'
           if depth = variable(:git_shallow_clone)
             args << "--depth #{depth}"
           end
 
           execute = []
-          if args.empty?
-            execute << "#{git} clone #{verbose} #{variable(:repository)} #{destination}"
-          else
-            execute << "#{git} clone #{verbose} #{args.join(' ')} #{variable(:repository)} #{destination}"
-          end
+          execute << "#{git} clone #{verbose} #{args.join(' ')} #{variable(:repository)} #{destination}"
 
           # checkout into a local branch rather than a detached HEAD
           execute << "cd #{destination} && #{git} checkout #{verbose} -b deploy #{revision}"
-          
+
           if variable(:git_enable_submodules)
             execute << "#{git} submodule #{verbose} init"
             execute << "#{git} submodule #{verbose} sync"
-            execute << "#{git} submodule #{verbose} update --recursive"
+            if false == variable(:git_submodules_recursive)
+              execute << "#{git} submodule #{verbose} update --init"
+            else
+              execute << %Q(export GIT_RECURSIVE=$([ ! "`#{git} --version`" \\< "git version 1.6.5" ] && echo --recursive))
+              execute << "#{git} submodule #{verbose} update --init $GIT_RECURSIVE"
+            end
           end
 
-          execute.join(" && ")
+          execute.compact.join(" && ").gsub(/\s+/, ' ')
         end
-        
+
         # An expensive export. Performs a checkout as above, then
         # removes the repo.
         def export(revision, destination)
@@ -185,13 +189,17 @@ module Capistrano
           end
 
           # since we're in a local branch already, just reset to specified revision rather than merge
-          execute << "#{git} fetch #{verbose} #{remote} && #{git} reset #{verbose} --hard #{revision}"
+          execute << "#{git} fetch #{verbose} #{remote} && #{git} fetch --tags #{verbose} #{remote} && #{git} reset #{verbose} --hard #{revision}"
 
           if variable(:git_enable_submodules)
             execute << "#{git} submodule #{verbose} init"
-            execute << "for mod in `#{git} submodule status | awk '{ print $2 }'`; do #{git} config -f .git/config submodule.${mod}.url `#{git} config -f .gitmodules --get submodule.${mod}.url` && echo Synced $mod; done"
             execute << "#{git} submodule #{verbose} sync"
-            execute << "#{git} submodule #{verbose} update"
+            if false == variable(:git_submodules_recursive)
+              execute << "#{git} submodule #{verbose} update --init"
+            else
+              execute << %Q(export GIT_RECURSIVE=$([ ! "`#{git} --version`" \\< "git version 1.6.5" ] && echo --recursive))
+              execute << "#{git} submodule #{verbose} update --init $GIT_RECURSIVE"
+            end
           end
 
           # Make sure there's nothing else lying around in the repository (for
@@ -203,8 +211,8 @@ module Capistrano
 
         # Returns a string of diffs between two revisions
         def diff(from, to=nil)
-          from << "..#{to}" if to
-          scm :diff, from
+          return scm :diff, from unless to
+          scm :diff, "#{from}..#{to}"
         end
 
         # Returns a log of changes between the two revisions (inclusive).
@@ -228,6 +236,12 @@ module Capistrano
               break
             end
           end
+          return newrev if newrev =~ /^[0-9a-f]{40}$/
+
+          # If sha is not found on remote, try expanding from local repository
+          command = scm('rev-parse --revs-only', revision)
+          newrev = yield(command).to_s.strip
+
           raise "Unable to resolve revision for '#{revision}' on repository '#{repository}'." unless newrev =~ /^[0-9a-f]{40}$/
           return newrev
         end
@@ -276,3 +290,4 @@ module Capistrano
     end
   end
 end
+
